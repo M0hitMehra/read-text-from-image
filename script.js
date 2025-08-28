@@ -92,8 +92,8 @@ class OCRApp {
     this.processBtn.disabled = true;
 
     try {
-      // Initialize Tesseract worker with proper configuration
-      this.updateProgress(10, "Initializing OCR engine...");
+      // Initialize Tesseract worker with advanced configuration for better text detection
+      this.updateProgress(10, "Initializing advanced OCR engine...");
 
       this.worker = await Tesseract.createWorker({
         logger: (m) => {
@@ -110,18 +110,29 @@ class OCRApp {
       await this.worker.loadLanguage("eng");
       await this.worker.initialize("eng");
 
-      // Process the image
-      this.updateProgress(30, "Processing image...");
+      // Configure Tesseract for better handling of scattered text
+      await this.worker.setParameters({
+        tessedit_pageseg_mode: "11", // Sparse text mode for scattered text
+        tessedit_char_whitelist:
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?-:;()[]{}\"'/\\@#$%^&*+=<>|`~",
+        preserve_interword_spaces: "1",
+      });
 
-      const {
-        data: { text },
-      } = await this.worker.recognize(this.currentFile);
+      // Process the image with advanced text detection
+      this.updateProgress(30, "Analyzing text layout...");
+
+      const { data } = await this.worker.recognize(this.currentFile);
+
+      this.updateProgress(70, "Processing scattered text...");
+
+      // Enhanced text processing for zigzag and random positioning
+      const processedText = await this.processScatteredText(data);
 
       this.updateProgress(100, "Processing complete!");
 
       // Display results
       setTimeout(() => {
-        this.displayResults(text);
+        this.displayResults(processedText);
         this.hideProgress();
       }, 500);
     } catch (error) {
@@ -139,6 +150,85 @@ class OCRApp {
         this.worker = null;
       }
     }
+  }
+
+  async processScatteredText(data) {
+    try {
+      // Extract words with their positions
+      const words = data.words || [];
+
+      if (words.length === 0) {
+        return data.text || "";
+      }
+
+      // Sort words by their spatial relationships for better reading order
+      const sortedWords = this.spatialTextSort(words);
+
+      // Simple reconstruction - join words with spaces
+      const reconstructedText = sortedWords
+        .map((word) => word.text)
+        .filter((text) => text && text.trim().length > 0)
+        .join(" ");
+
+      return this.cleanupExtractedText(reconstructedText);
+    } catch (error) {
+      console.warn("Advanced text processing failed, using basic text:", error);
+      return data.text || "";
+    }
+  }
+
+  spatialTextSort(words) {
+    try {
+      // Create a copy of words with enhanced position data
+      const wordsWithMetrics = words.map((word) => {
+        // Handle different bbox formats safely
+        const bbox = word.bbox || {};
+        const x0 = bbox.x0 || 0;
+        const y0 = bbox.y0 || 0;
+        const x1 = bbox.x1 || 0;
+        const y1 = bbox.y1 || 0;
+
+        return {
+          ...word,
+          centerX: x0 + (x1 - x0) / 2,
+          centerY: y0 + (y1 - y0) / 2,
+          width: x1 - x0,
+          height: y1 - y0,
+        };
+      });
+
+      // Sort for better text flow: top to bottom, left to right
+      return wordsWithMetrics.sort((a, b) => {
+        // Primary sort: Top to bottom (with tolerance for same line)
+        const yTolerance = Math.max(a.height, b.height) * 0.5;
+        const yDiff = a.centerY - b.centerY;
+
+        if (Math.abs(yDiff) > yTolerance) {
+          return yDiff; // Different lines
+        }
+
+        // Secondary sort: Left to right for same line
+        return a.centerX - b.centerX;
+      });
+    } catch (error) {
+      console.warn("Spatial sorting failed, returning original words:", error);
+      return words;
+    }
+  }
+
+  cleanupExtractedText(text) {
+    return (
+      text
+        // Remove excessive whitespace
+        .replace(/\s+/g, " ")
+        // Fix common OCR errors
+        .replace(/([a-z])([A-Z])/g, "$1 $2") // Add space between lowercase and uppercase
+        .replace(/(\d)([A-Za-z])/g, "$1 $2") // Add space between numbers and letters
+        .replace(/([A-Za-z])(\d)/g, "$1 $2") // Add space between letters and numbers
+        // Clean up line breaks
+        .replace(/\n\s*\n/g, "\n")
+        .trim()
+    );
   }
 
   updateProgress(percentage, message) {
