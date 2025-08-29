@@ -20,6 +20,13 @@ class OCRApp {
     this.copyBtn = document.getElementById("copyBtn");
     this.downloadBtn = document.getElementById("downloadBtn");
     this.clearBtn = document.getElementById("clearBtn");
+
+    // Debug: Check if textarea element is found
+    if (!this.extractedText) {
+      console.error("Textarea element 'extractedText' not found!");
+    } else {
+      console.log("Textarea element found successfully");
+    }
   }
 
   setupEventListeners() {
@@ -130,9 +137,18 @@ class OCRApp {
 
       this.updateProgress(100, "Processing complete!");
 
-      // Display results
+      // Debug logging
+      console.log("OCR Data:", data);
+      console.log("Processed Text:", processedText);
+      console.log("Raw Text:", data.text);
+
+      // Display results with fallback
       setTimeout(() => {
-        this.displayResults(processedText);
+        const finalText =
+          processedText ||
+          data.text ||
+          "No text detected in the image. Please try with a clearer image or check if the image contains readable text.";
+        this.displayResults(finalText);
         this.hideProgress();
       }, 500);
     } catch (error) {
@@ -154,15 +170,23 @@ class OCRApp {
 
   async processScatteredText(data) {
     try {
+      console.log("Processing scattered text, data:", data);
+
+      // First try to get basic text
+      const basicText = data.text || "";
+
       // Extract words with their positions
       const words = data.words || [];
+      console.log("Found words:", words.length);
 
       if (words.length === 0) {
-        return data.text || "";
+        console.log("No words found, returning basic text:", basicText);
+        return basicText;
       }
 
       // Sort words by their spatial relationships for better reading order
       const sortedWords = this.spatialTextSort(words);
+      console.log("Sorted words:", sortedWords.length);
 
       // Simple reconstruction - join words with spaces
       const reconstructedText = sortedWords
@@ -170,7 +194,11 @@ class OCRApp {
         .filter((text) => text && text.trim().length > 0)
         .join(" ");
 
-      return this.cleanupExtractedText(reconstructedText);
+      console.log("Reconstructed text:", reconstructedText);
+
+      // Return the better of the two texts
+      const finalText = reconstructedText.trim() || basicText.trim();
+      return this.cleanupExtractedText(finalText);
     } catch (error) {
       console.warn("Advanced text processing failed, using basic text:", error);
       return data.text || "";
@@ -246,7 +274,17 @@ class OCRApp {
   }
 
   displayResults(text) {
-    this.extractedText.value = text.trim();
+    console.log("Displaying results:", text);
+    const finalText = text.trim();
+
+    if (!finalText) {
+      console.warn("Empty text received, showing fallback message");
+      this.extractedText.value =
+        "No text was detected in the image. Please try:\n\n• Using a clearer, higher resolution image\n• Ensuring good contrast between text and background\n• Making sure the text is not too small or blurry\n• Checking that the image actually contains readable text";
+    } else {
+      this.extractedText.value = finalText;
+    }
+
     this.resultsSection.style.display = "block";
 
     // Scroll to results
